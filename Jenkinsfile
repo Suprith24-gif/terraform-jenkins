@@ -3,23 +3,38 @@ pipeline {
     agent any
 
     parameters {
-        booleanParam(name: 'autoApprove', defaultValue: false, description: 'Automatically run apply after generating plan?')
+        booleanParam(
+            name: 'autoApprove',
+            defaultValue: false,
+            description: 'Automatically run apply after generating plan?'
+        )
     }
 
     environment {
         AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
+        AWS_DEFAULT_REGION    = 'us-east-1'
     }
 
     stages {
 
+        stage('Verify Terraform') {
+            steps {
+                bat 'where terraform'
+                bat 'terraform version'
+            }
+        }
+
+        stage('Init') {
+            steps {
+                bat 'terraform init'
+            }
+        }
+
         stage('Plan') {
             steps {
-                dir('terraform') {
-                    bat 'terraform init'
-                    bat 'terraform plan -out=tfplan'
-                    bat 'terraform show -no-color tfplan > tfplan.txt'
-                }
+                bat 'terraform plan -out=tfplan'
+                bat 'terraform show -no-color tfplan > tfplan.txt'
             }
         }
 
@@ -29,22 +44,32 @@ pipeline {
                     equals expected: true, actual: params.autoApprove
                 }
             }
-
             steps {
                 script {
-                    def plan = readFile 'terraform/tfplan.txt'
+                    def plan = readFile 'tfplan.txt'
                     input message: "Do you want to apply the plan?",
-                          parameters: [text(name: 'Plan', description: 'Review the plan', defaultValue: plan)]
+                          parameters: [
+                              text(name: 'Terraform Plan',
+                                   description: 'Review the plan below',
+                                   defaultValue: plan)
+                          ]
                 }
             }
         }
 
         stage('Apply') {
             steps {
-                dir('terraform') {
-                    bat 'terraform apply -input=false tfplan'
-                }
+                bat 'terraform apply -input=false tfplan'
             }
+        }
+    }
+
+    post {
+        success {
+            echo 'Terraform deployment completed successfully!'
+        }
+        failure {
+            echo 'Terraform deployment failed!'
         }
     }
 }
